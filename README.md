@@ -120,6 +120,9 @@ a matching tag on all `gateways` which you want this deployment to host.
 
 The `tag` on the gateway should be `ig:<name>`, so with a `nginx-apigw-instance-group` of "team1", the tag should be `ig:team1`
 
+The termination `preStop` and grace period are set so that the controller has time to remove configuration from them during
+a scaling down event. The operator will also remove deleted pods from the controller instances list during such an event.
+
 ### Step Three
 
 Once you have deployed the above `Deployment` you will want to go and create the `Gateways` with the matching `tags` if you haven't
