@@ -1,0 +1,157 @@
+---
+- hosts: localhost
+  gather_facts: no
+  connection: local
+  collections:
+    - community.kubernetes
+    - operator_sdk.util
+    - nginxinc.nginx_controller
+  vars:
+    ansible_verbosity: "{{ lookup('env','ANSIBLE_VERBOSITY_CONTROLLER_APIGW_NGINX_COM') }}"
+    resource_type: "Deployment"
+
+  tasks:
+
+    - name: Work around Ansible snake_casing our vars
+      set_fact:
+        spec: "{{ _apps_deployment_spec }}"
+        resource: "{{ _apps_deployment }}"
+
+    - name: Wait for Kubernetes to complete pod changes
+      k8s_info:
+        kind: Deployment
+        api_version: v1
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+      register: deployment_status
+      until: (deployment_status.resources is defined) and
+             (deployment_status.resources.0.spec.replicas  == (deployment_status.resources.0.status.availableReplicas | default(0)) )
+      retries: 10
+      delay: 2
+      ignore_errors: true
+
+    - name: Setup Connection to Controller
+      import_tasks: tasks/setup_env.yml
+
+    - name: Get the Gateways from the controller
+      uri:
+        url: "https://{{ nginx_controller_fqdn }}/api/v1/services/environments"
+        method: "GET"
+        status_code: 200
+        return_content: yes
+        validate_certs: no
+        headers:
+          Cookie: "{{ nginx_controller_auth_token }}"
+      register: gateways
+
+    - name: Find Matching gateways
+      set_fact:
+        gw_list: "{{ gateways.json | json_query( filter_gateways ) }}"
+      vars:
+        filter_gateways: "items[].currentStatus[].gatewayRefs[].links.rel"
+
+    - name: Get the Gateways from the controller
+      uri:
+        url: "https://{{ nginx_controller_fqdn }}{{ item }}"
+        method: "GET"
+        status_code: 200
+        return_content: yes
+        validate_certs: no
+        headers:
+          Cookie: "{{ nginx_controller_auth_token }}"
+      register: gw_info
+      with_list: "{{ gw_list }}"
+
+    - name: Get the Pod selectors from the deployment
+      set_fact:
+        pod_selectors: "{{ pod_selectors | default([]) + [ item.key ~ ' = ' ~ item.value ] }}"
+      with_dict: "{{ deployment_status.resources.0.spec.selector.matchLabels }}"
+
+    - name: Get the Pods
+      k8s_info:
+        kind: Pod
+        api_version: v1
+        label_selectors: "{{ pod_selectors }}"
+      register: pods
+
+    - name: Generate the instanceRefs using active Pods
+      set_fact:
+        instanceRefs: "{{ instanceRefs | default([]) + [ { 'ref': '/infrastructure/locations/' ~ resource.metadata.labels['nginx-apigw-instance-location'] ~ '/instances/' ~ item } ] }}"
+      with_list: "{{ pods | json_query( pod_name_query ) }}"
+      vars:
+        pod_name_query: "resources[? ! contains(keys(metadata),'deletionTimestamp')].metadata.name"
+
+    - name: Pull the instanceRefs of any deleting pods
+      set_fact:
+        deletingRefs: "{{ deletingRefs | default([]) + [ '/api/v1/infrastructure/locations/' ~ resource.metadata.labels['nginx-apigw-instance-location'] ~ '/instances/' ~ item ] }}"
+      with_list: "{{ pods | json_query( pod_name_query ) }}"
+      vars:
+        pod_name_query: "resources[? contains(keys(metadata),'deletionTimestamp')].metadata.name"
+
+    - name: Filter matching Instance Group tags
+      set_fact:
+        gw_match: "{{ gw_match | default({}) | combine( { (item | json_query( filter_gateways )): ( item.json | combine({ 'desiredState':{ 'ingress':{ 'placement':{ 'instanceRefs': instanceRefs }}}}, recursive=True )) } ) }}"
+      with_list: "{{ gw_info.results }}"
+      vars:
+        filter_gateways: "json.metadata.[not_null(tags) && contains(tags, 'ig:{{ resource.metadata.labels['nginx-apigw-instance-group'] }}' ) && name || '_IGNORED_' ] | [0]"
+
+    - name: Update Controller
+      uri:
+        url: "https://{{ nginx_controller_fqdn }}{{ item.value.metadata.links.rel }}"
+        method: "PUT"
+        status_code:
+          - 200
+          - 201
+          - 202
+        body: "{{ item.value }}"
+        body_format: json
+        return_content: yes
+        validate_certs: no
+        headers:
+          Cookie: "{{ nginx_controller_auth_token }}"
+      with_dict: "{{ gw_match }}"
+      when: item.key != "_IGNORED_"
+        
+    - name: Confirm component is provisioned and not errored
+      uri:
+        url: "https://{{ nginx_controller_fqdn }}{{ item.value.metadata.links.rel }}"
+        method: "GET"
+        status_code:
+          - 200
+          - 201
+          - 202
+        return_content: yes
+        validate_certs: no
+        headers:
+          Cookie: "{{ nginx_controller_auth_token }}"
+      with_dict: "{{ gw_match }}"
+      when: item.key != "_IGNORED_"
+      register: nginx_controller_gateway_current_status
+      until: (nginx_controller_gateway_current_status is defined) and
+             (not nginx_controller_gateway_current_status.json.currentStatus.state.selfConfigState.isConfiguring | bool)
+      retries: 15
+      delay: 2
+      failed_when: nginx_controller_gateway_current_status.json.currentStatus.state.selfConfigState.isConfigured | bool == false
+      ignore_errors: true
+
+    - name: Delete any pods which were being deleted
+      uri:
+        url: "https://{{ nginx_controller_fqdn }}{{ item }}"
+        method: "DELETE"
+        status_code: 
+          - 202
+          - 204
+        validate_certs: no
+        headers:
+          Cookie: "{{ nginx_controller_auth_token }}"
+      with_list: "{{ deletingRefs | default([]) }}"
+      ignore_errors: true
+
+    - name: report failure details from Controller
+      fail:
+        msg: "{{ item.json.currentStatus.state.conditions }}"
+      with_list: "{{ nginx_controller_gateway_current_status.results }}"
+      when:
+        - item.json is defined
+        - item.json.currentStatus.state.selfConfigState.isConfigured | bool == false
+

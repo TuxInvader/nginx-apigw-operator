@@ -1,0 +1,16 @@
+---
+# Use the 'create api' subcommand to add watches to this file.
+- version: v1alpha1
+  group: apigw.nginx.com
+  kind: Controller
+  playbook: playbooks/controller.yml
+  snakeCaseParameters: False
+#+kubebuilder:scaffold:watch
+- version: v1
+  group: "apps"
+  kind: Deployment
+  playbook: playbooks/deployment.yml
+  snakeCaseParameters: False
+  selector:
+    matchExpressions:
+      - {key: nginx-apigw-instance-group, operator: Exists, values: []}

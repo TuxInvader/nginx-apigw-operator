@@ -1,0 +1,94 @@
+---
+
+    # The name space should be that of the current resource, or that of the component
+    # nginx_apigw_namespace is set when a component update is triggered from a Deployment
+    - name: Set the nginx_apigw Namespace
+      set_fact:
+        nginx_apigw_namespace: "{{ nginx_apigw_namespace | default( ansible_operator_meta.namespace ) }}"
+
+    - name: Get the Controller Details
+      k8s_info:
+        kind: Controller
+        api_version: "apigw.nginx.com/v1alpha1"
+        name: "{{ resource.metadata.labels['nginx-apigw-controller'] }}"
+        namespace: "{{ nginx_apigw_namespace }}"
+      register: ctl_info
+      when: resource_type != "Controller"
+
+    - name: Add this instance to ctl_info
+      set_fact:
+        ctl_info: "{{ ctl_info | combine( {'resources':[ {'spec': spec, 'metadata':{ 'name': ansible_operator_meta.name, 'namespace': ansible_operator_meta.namespace } } ]} ) }}"
+      when: resource_type == "Controller"
+
+    - name: Fail if we can't find the Controller
+      fail:
+        msg: "Controller '{{ controller }}' not found in namespace '{{ nginx_apigw_namespace }}'"
+      when: ctl_info.resources | length == 0
+
+    - name: Set the controller Auth cache file
+      set_fact:
+        token_cache: "{{ '/tmp/ctl-' ~ nginx_apigw_namespace ~ '/' ~ ctl_info.resources.0.metadata.namespace ~ '.' ~ ctl_info.resources.0.metadata.name ~ '_' ~ ctl_info.resources.0.spec.secret ~ '.auth' }}"
+
+    - name: Wait for the Controller to Authorize on startup
+      wait_for:
+        path: "{{ token_cache }}"
+        state: present
+        sleep: 1
+        timeout: "{{ 30 | random }}"
+      ignore_errors: yes
+      when: resource_type != "Controller"
+
+    - name: Stat the controller Auth cache
+      stat:
+        path: "{{ token_cache }}"
+      register: token_stat
+
+    - name: Create Controller facts
+      set_fact:
+        nginx_controller_user_email: "{{ ctl_info.resources.0.spec.user_email }}"
+        nginx_controller_fqdn: "{{ ctl_info.resources.0.spec.fqdn }}"
+        nginx_controller_validate_certs: "{{ ctl_info.resources.0.spec.validate_certs }}"
+
+    - name: Get the time
+      shell: "date +%s"
+      register: date
+
+    - name: Login and Refresh the Auth Token
+      block:
+
+      - name: Ensure the auth token directory exists
+        file:
+          path: "{{ '/tmp/ctl-' ~ nginx_apigw_namespace }}"
+          mode: "0700"
+          state: directory
+
+      - name: Get the Secret password
+        k8s_info:
+          kind: Secret
+          name: "{{ ctl_info.resources.0.spec.secret }}"
+          namespace: "{{ nginx_apigw_namespace }}"
+        register: ctl_creds
+
+      - name: Add Controller user_password fact
+        set_fact:
+          nginx_controller_user_password: "{{ ctl_creds.resources.0.data.user_password | b64decode }}"
+
+      - name: Retrieve the NGINX Controller auth token
+        include_role:
+          name: nginxinc.nginx_controller.nginx_controller_generate_token
+
+      - name: Store the token in the cache
+        copy:
+          dest: "{{ token_cache }}"
+          mode: "0600"
+          content: "{{ nginx_controller_auth_token }}"
+
+      when: ( token_stat.stat.exists == False ) or ( ( token_stat.stat.mtime |int) <= ( ( date.stdout |int) - 1800 ) )
+
+    - name: Use Cached Auth Token
+      set_fact:
+        nginx_controller_auth_token: "{{ lookup('file', token_cache) }}"
+      when: ( token_stat.stat.exists ) and ( ( token_stat.stat.mtime |int) > ( ( date.stdout |int) - 1800 ) )
+
+...
+
