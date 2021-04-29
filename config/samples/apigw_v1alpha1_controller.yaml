@@ -1,9 +1,0 @@
-apiVersion: apigw.nginx.com/v1alpha1
-kind: Controller
-metadata:
-  name: controller-sample
-spec:
-  user_email: "admin@nginx.com"
-  secret: "controller"
-  fqdn: "10.0.0.4"
-  validate_certs: false

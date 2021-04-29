@@ -15,3 +15,4 @@ kind: ConfigMap
 metadata:
   name: apigw-operator-manager-config
   namespace: apigw-operator-system
+

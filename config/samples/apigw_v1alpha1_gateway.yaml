@@ -1,0 +1,44 @@
+apiVersion: apigw.nginx.com/v1alpha1
+kind: Gateway
+metadata:
+  name: gateway-sample
+spec:
+  instance-group: team1
+  instance-location: k8s-team1
+  user_email: "admin@nginx.com"
+  secret: "controller"
+  fqdn: "10.0.0.4"
+  validate_certs: false
+  deployment:
+    selector:
+      matchLabels:
+        app: apigw-sp
+    replicas: 2
+    template:
+      metadata:
+        labels:
+          app: apigw-sp
+      spec:
+        terminationGracePeriodSeconds: 30
+        imagePullSecrets:
+          - name: f5reg
+        containers:
+        - image: f5reg.azurecr.io/nginx/nginx-agent:latest
+          imagePullPolicy: "Always"
+          name: nplus-apigw
+          ports:
+          - containerPort: 80
+          env:
+          - name: ENV_CONTROLLER_API_KEY
+            value: eeeeeeeeffffffffff0af6103b19b995
+          - name: ENV_CONTROLLER_LOCATION
+            value: k8s-team1
+          - name: ENV_CONTROLLER_INSTANCE_GROUP
+            value: team1
+          lifecycle:
+            preStop:
+              exec:
+                command: [
+                  # Allow Controller to remove us from services before shutting down
+                  "/bin/sleep", "25"
+                ]

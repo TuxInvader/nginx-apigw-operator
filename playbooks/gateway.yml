@@ -1,0 +1,24 @@
+---
+- hosts: localhost
+  gather_facts: no
+  collections:
+    - community.kubernetes
+    - operator_sdk.util
+    - nginxinc.nginx_controller
+  vars:
+    ansible_verbosity: "{{ lookup('env','ANSIBLE_VERBOSITY_CONTROLLER_APIGW_NGINX_COM') }}"
+    resource_type: "Gateway"
+
+  tasks: 
+
+    - name: Work around Ansible snake_casing our vars
+      set_fact:
+        spec: "{{ _apigw_nginx_com_gateway_spec }}"
+        resource: "{{ _apigw_nginx_com_gateway }}"
+
+    - name: Setup Connection to Controller
+      import_tasks: tasks/setup_env.yml
+
+    - name: Process Deployment
+      import_tasks: tasks/process_deployment.yml
+

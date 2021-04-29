@@ -65,9 +65,9 @@ rules:
 - apiGroups:
   - apigw.nginx.com
   resources:
-  - controllers
-  - controllers/status
-  - controllers/finalizers
+  - gateways
+  - gateways/status
+  - gateways/finalizers
   verbs:
   - create
   - delete

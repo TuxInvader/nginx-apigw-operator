@@ -1,4 +1,4 @@
 ## Append samples you want in your CSV to this file as resources ##
 resources:
-- apigw_v1alpha1_controller.yaml
+- apigw_v1alpha1_gateway.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

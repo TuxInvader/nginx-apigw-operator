@@ -1,21 +1,4 @@
 ---
-- hosts: localhost
-  gather_facts: no
-  connection: local
-  collections:
-    - community.kubernetes
-    - operator_sdk.util
-    - nginxinc.nginx_controller
-  vars:
-    ansible_verbosity: "{{ lookup('env','ANSIBLE_VERBOSITY_CONTROLLER_APIGW_NGINX_COM') }}"
-    resource_type: "Deployment"
-
-  tasks:
-
-    - name: Work around Ansible snake_casing our vars
-      set_fact:
-        spec: "{{ _apps_deployment_spec }}"
-        resource: "{{ _apps_deployment }}"
 
     - name: Wait for Kubernetes to complete pod changes
       k8s_info:
@@ -30,8 +13,36 @@
       delay: 2
       ignore_errors: true
 
-    - name: Setup Connection to Controller
-      import_tasks: tasks/setup_env.yml
+    - name: dump
+      debug:
+        msg: "{{ deployment_status }}"
+
+    - name: Start Deployment if it doesn't exist
+      community.kubernetes.k8s:
+        definition:
+          kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            name: "{{ ansible_operator_meta.name }}"
+            namespace: "{{ ansible_operator_meta.namespace }}"
+            labels:
+              nginx-apigw-instance-group: "{{ spec['instance_group'] }}"
+              nginx-apigw-instance-location: "{{ spec['instance_location'] }}"
+          spec: "{{ spec['deployment'] }}"
+      register: new_deployment_status
+      when: deployment_status.resources is not defined
+
+    - name: dump
+      debug:
+        msg: "{{ new_deployment_status }}"
+
+    - name: Set Deployment status
+      set_fact:
+        deployment_status: "{{ deployment_status.resources.0 | default( new_deployment_status.result )  }}"
+
+    - name: dump dep_stat
+      debug:
+        msg: "{{ deployment_status }}"
 
     - name: Get the Gateways from the controller
       uri:
@@ -39,7 +50,7 @@
         method: "GET"
         status_code: 200
         return_content: yes
-        validate_certs: no
+        validate_certs: "{{ nginx_controller_validate_certs }}"
         headers:
           Cookie: "{{ nginx_controller_auth_token }}"
       register: gateways
@@ -56,7 +67,7 @@
         method: "GET"
         status_code: 200
         return_content: yes
-        validate_certs: no
+        validate_certs: "{{ nginx_controller_validate_certs }}"
         headers:
           Cookie: "{{ nginx_controller_auth_token }}"
       register: gw_info
@@ -65,7 +76,7 @@
     - name: Get the Pod selectors from the deployment
       set_fact:
         pod_selectors: "{{ pod_selectors | default([]) + [ item.key ~ ' = ' ~ item.value ] }}"
-      with_dict: "{{ deployment_status.resources.0.spec.selector.matchLabels }}"
+      with_dict: "{{ deployment_status.spec.selector.matchLabels }}"
 
     - name: Get the Pods
       k8s_info:
@@ -76,14 +87,14 @@
 
     - name: Generate the instanceRefs using active Pods
       set_fact:
-        instanceRefs: "{{ instanceRefs | default([]) + [ { 'ref': '/infrastructure/locations/' ~ resource.metadata.labels['nginx-apigw-instance-location'] ~ '/instances/' ~ item } ] }}"
+        instanceRefs: "{{ instanceRefs | default([]) + [ { 'ref': '/infrastructure/locations/' ~ spec['instance_location'] ~ '/instances/' ~ item } ] }}"
       with_list: "{{ pods | json_query( pod_name_query ) }}"
       vars:
         pod_name_query: "resources[? ! contains(keys(metadata),'deletionTimestamp')].metadata.name"
 
     - name: Pull the instanceRefs of any deleting pods
       set_fact:
-        deletingRefs: "{{ deletingRefs | default([]) + [ '/api/v1/infrastructure/locations/' ~ resource.metadata.labels['nginx-apigw-instance-location'] ~ '/instances/' ~ item ] }}"
+        deletingRefs: "{{ deletingRefs | default([]) + [ '/api/v1/infrastructure/locations/' ~ spec['instance_location'] ~ '/instances/' ~ item ] }}"
       with_list: "{{ pods | json_query( pod_name_query ) }}"
       vars:
         pod_name_query: "resources[? contains(keys(metadata),'deletionTimestamp')].metadata.name"
@@ -93,7 +104,7 @@
         gw_match: "{{ gw_match | default({}) | combine( { (item | json_query( filter_gateways )): ( item.json | combine({ 'desiredState':{ 'ingress':{ 'placement':{ 'instanceRefs': instanceRefs }}}}, recursive=True )) } ) }}"
       with_list: "{{ gw_info.results }}"
       vars:
-        filter_gateways: "json.metadata.[not_null(tags) && contains(tags, 'ig:{{ resource.metadata.labels['nginx-apigw-instance-group'] }}' ) && name || '_IGNORED_' ] | [0]"
+        filter_gateways: "json.metadata.[not_null(tags) && contains(tags, 'ig:{{ spec['instance_group'] }}' ) && name || '_IGNORED_' ] | [0]"
 
     - name: Update Controller
       uri:
@@ -106,10 +117,10 @@
         body: "{{ item.value }}"
         body_format: json
         return_content: yes
-        validate_certs: no
+        validate_certs: "{{ nginx_controller_validate_certs }}"
         headers:
           Cookie: "{{ nginx_controller_auth_token }}"
-      with_dict: "{{ gw_match }}"
+      with_dict: "{{ gw_match | default({})}}"
       when: item.key != "_IGNORED_"
         
     - name: Confirm component is provisioned and not errored
@@ -121,10 +132,10 @@
           - 201
           - 202
         return_content: yes
-        validate_certs: no
+        validate_certs: "{{ nginx_controller_validate_certs }}"
         headers:
           Cookie: "{{ nginx_controller_auth_token }}"
-      with_dict: "{{ gw_match }}"
+      with_dict: "{{ gw_match | default({}) }}"
       when: item.key != "_IGNORED_"
       register: nginx_controller_gateway_current_status
       until: (nginx_controller_gateway_current_status is defined) and
@@ -134,14 +145,14 @@
       failed_when: nginx_controller_gateway_current_status.json.currentStatus.state.selfConfigState.isConfigured | bool == false
       ignore_errors: true
 
-    - name: Delete any pods which were being deleted
+    - name: Delete any pods which are being deleted
       uri:
         url: "https://{{ nginx_controller_fqdn }}{{ item }}"
         method: "DELETE"
         status_code: 
           - 202
           - 204
-        validate_certs: no
+        validate_certs: "{{ nginx_controller_validate_certs }}"
         headers:
           Cookie: "{{ nginx_controller_auth_token }}"
       with_list: "{{ deletingRefs | default([]) }}"

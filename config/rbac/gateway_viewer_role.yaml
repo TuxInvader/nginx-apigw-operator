@@ -1,13 +1,13 @@
-# permissions for end users to view controllers.
+# permissions for end users to view gateways.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: controller-viewer-role
+  name: gateway-viewer-role
 rules:
 - apiGroups:
   - apigw.nginx.com
   resources:
-  - controllers
+  - gateways
   verbs:
   - get
   - list
@@ -15,6 +15,6 @@ rules:
 - apiGroups:
   - apigw.nginx.com
   resources:
-  - controllers/status
+  - gateways/status
   verbs:
   - get

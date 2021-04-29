@@ -38,14 +38,14 @@ rules:
       - update
       - watch
   ##
-  ## Rules for apigw.nginx.com/v1alpha1, Kind: Controller
+  ## Rules for apigw.nginx.com/v1alpha1, Kind: Gateway
   ##
   - apiGroups:
       - apigw.nginx.com
     resources:
-      - controllers
-      - controllers/status
-      - controllers/finalizers
+      - gateways
+      - gateways/status
+      - gateways/finalizers
     verbs:
       - create
       - delete

@@ -38,19 +38,14 @@ kubectl -n apigw-operator-system logs deployment.apps/apigw-operator-controller-
 
 ## Usage
 
-The default operator will monitor all namespaces in kubernetes for `Controller` resources in group `apigw.nginx.com`, you can limit this to
+The default operator will monitor all namespaces in kubernetes for `Gateway` resources in group `apigw.nginx.com`, you can limit this to
 specific namespaces by providing a `WATCH_NAMESPACE` environment variable.
-
-The operator also monitors deployments which are labelled with `nginx-apigw-instance-group`. This label should match a tag on the `Gateway` objects
-on your NGINX Controller. The operator will attempt to link any gateways tagged with a matching value to the pods in the labelled deployment.
 
 ## Walk through
 
 ### Step One
 
-Assuming you have the operator running on your k8's cluster, the first thing you need is a controller resource and a kubernetes secret.
-
-The secret
+Assuming you have the operator running on your k8's cluster, the first thing you need is a secrey to store the controller password.
 
 ```
 apiVersion: v1
@@ -62,88 +57,77 @@ data:
   user_password: cGFzc3dvcmQ=
 ```
 
-The Controller
-
-```
-apiVersion: apigw.nginx.com/v1alpha1
-kind: Controller
-metadata:
-  name: controller1
-  namespace: apigw-team1
-spec:
-  user_email: "admin@nginx.com"
-  secret: "controller"
-  fqdn: "10.0.0.4"
-  validate_certs: false
-```
-
 ### Step Two
 
 You also need an NGINX Plus container which can automatically register itself with the NGINX Controller.
 So build this one: [Docker NGINX Controller](https://github.com/nginxinc/docker-nginx-controller), and host it in a private repo.
 
-You then need to deploy that container, using a manifest something like this:
+You then need to deploy that container, via a `Gateway` resource.
 
 ```
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: apigw.nginx.com/v1alpha1
+kind: Gateway
 metadata:
-  name: apigw-dep
+  name: apigw
   namespace: apigw-team1
-  labels:
-    nginx-apigw-instance-group: team1
-    nginx-apigw-instance-location: k8s-team1
-    nginx-apigw-controller: controller1
 spec:
-  selector:
-    matchLabels:
-      app: apigw-sp
-  replicas: 2
-  template:
-    metadata:
-      labels:
+  instance_group: team1
+  instance_location: k8s-team1
+  user_email: "admin@nginx.com"
+  fqdn: "10.0.0.4"
+  secret: "controller"
+  deployment:
+    selector:
+      matchLabels:
         app: apigw-sp
-    spec:
-      terminationGracePeriodSeconds: 30
-      imagePullSecrets:
-        - name: f5reg
-      containers:
-      - image: f5reg.azurecr.io/nginx/nginx-agent:latest
-        imagePullPolicy: "Always"
-        name: nplus-apigw
-        ports:
-        - containerPort: 80
-        env:
-        - name: ENV_CONTROLLER_API_KEY
-          value: eeeeeefffffffcbe160af6103b19b995
-        - name: ENV_CONTROLLER_LOCATION
-          value: k8s-team1
-        - name: ENV_CONTROLLER_INSTANCE_GROUP
-          value: team1
-        lifecycle:
-          preStop:
-            exec:
-              command: [
-                # Allow Controller to remove us from services before shutting down
-                "/bin/sleep", "25"
-              ]
+    replicas: 2
+    template:
+      metadata:
+        labels:
+          app: apigw-sp
+      spec:
+        terminationGracePeriodSeconds: 30
+        imagePullSecrets:
+          - name: f5reg
+        containers:
+        - image: f5reg.azurecr.io/nginx/nginx-agent:latest
+          imagePullPolicy: "Always"
+          name: nplus-apigw
+          ports:
+          - containerPort: 80
+          env:
+          - name: ENV_CONTROLLER_API_KEY
+            value: e282fe19f739fcbe160af6103b19b995
+          - name: ENV_CONTROLLER_LOCATION
+            value: k8s-team1
+          - name: ENV_CONTROLLER_INSTANCE_GROUP
+            value: team1
+          lifecycle:
+            preStop:
+              exec:
+                command: [
+                  # Allow Controller to remove us from services before shutting down
+                  "/bin/sleep", "25"
+                ]
 ```
 
-There are a number of labels in the metadata: `nginx-apigw-controller` names the `Controller` resource in the same namespace
-which contains the location and authentication information for the controller. `nginx-apigw-instance-location` is an instance
-location which should already exist on the controller, and should match the `ENV_CONTROLLER_LOCATION` used by the container
-when it registers itself with controller. Finally `nginx-apigw-instance-group` is the "Instance Group" which should map to
-a matching tag on all `gateways` which you want this deployment to host. 
+The Gateway resource will create a Kubernetes Deployment with the same name as the `Gateway`, and information from `deployment` as the spec.
 
-The `tag` on the gateway should be `ig:<name>`, so with a `nginx-apigw-instance-group` of "team1", the tag should be `ig:team1`
+You must provide the `Gateway` with the following information: `user_email`, `fqdn`, and `secret` are used to locate and login
+to the NGINX Controller. `instance_location` is an instance location which should already exist on the controller, and should
+match the `ENV_CONTROLLER_LOCATION` used by the container when it registers itself with controller. Finally `instance_group` is the 
+"Instance Group" which should map to a matching tag on the Gateways defined on Controller.
+
+The `tag` on the gateway in controller should be `ig:<name>`, so with a `instance_group` of "team1" in Kubernetes, the tag on NGINX Controller
+should be `ig:team1`
 
 The termination `preStop` and grace period are set so that the controller has time to remove configuration from them during
 a scaling down event. The operator will also remove deleted pods from the controller instances list during such an event.
 
 ### Step Three
 
-Once you have deployed the above `Deployment` you will want to go and create the `Gateways` with the matching `tags` if you haven't
-already. From this point on, the operator will update the gateway as and when the deployment pods change.
+Once you have deployed the above `Gateway` you will want to go and create the `Controller Gateways` with the matching `tags` if you haven't
+already. From this point on, the operator will update the Controller Gateway as and when the Gateway resource and its deployment/pods change.
 
 ## Notes
 

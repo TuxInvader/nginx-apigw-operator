@@ -33,14 +33,14 @@ spec:
         image: controller:latest
         name: manager
         env:
+        - name: WATCH_NAMESPACE
+          value: ""
         - name: ANSIBLE_GATHERING
           value: explicit
         - name: ANSIBLE_DEBUG_LOGS
-          value: "False"
-        - name: ANSIBLE_VERBOSITY_CONTROLLER_APIGW_NGINX_COM
-          value: "1"
-        - name: ANSIBLE_VERBOSITY_DEPLOYMENT_APPS
-          value: "1"
+          value: "True"
+        - name: ANSIBLE_VERBOSITY_GATEWAY_APIGW_NGINX_COM
+          value: "5"
         securityContext:
           allowPrivilegeEscalation: false
         livenessProbe:

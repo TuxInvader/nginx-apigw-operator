@@ -11,6 +11,6 @@ resources:
     namespaced: true
   domain: nginx.com
   group: apigw
-  kind: Controller
+  kind: Gateway
   version: v1alpha1
 version: "3"
