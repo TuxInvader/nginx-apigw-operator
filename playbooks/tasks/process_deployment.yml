@@ -145,6 +145,20 @@
       failed_when: nginx_controller_gateway_current_status.json.currentStatus.state.selfConfigState.isConfigured | bool == false
       ignore_errors: true
 
+    - name: Get the Pods
+      k8s_info:
+        kind: Pod
+        api_version: v1
+        label_selectors: "{{ pod_selectors }}"
+      register: pods
+      until: (pods.resources is defined) and
+            ( pods | json_query( pod_name_query ) == [] )
+      retries: 12
+      delay: 5
+      ignore_errors: true
+      vars:
+        pod_name_query: "resources[? contains(keys(metadata),'deletionTimestamp')].metadata.name"
+
     - name: Delete any pods which are being deleted
       uri:
         url: "https://{{ nginx_controller_fqdn }}{{ item }}"
