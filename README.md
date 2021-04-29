@@ -1,8 +1,18 @@
 # NGINX Controller Pod Operator
 
-This is an operator for managing the lifecycle of K8s pods with NGINX Controller. 
+This is an operator for managing the lifecycle of K8s pods which are configured by NGINX Controller. 
 
-## Building
+It is designed to work with the [docker-nginx-controller](https://github.com/nginxinc/docker-nginx-controller) container, so
+you'll need to build yourself an NGINX Plus image from that project first.
+
+The container referenced above will automatically register itself with NGINX Controller when it starts, but it's then up
+to you to apply configuration to it. This project is an interrim measure until Controller fully supports Kubernetes, the
+operator will monitor deployments with a `nginx-apigw-instance-group` label, and then search the `Gateways` on Controller
+for a match. The pods are then added to any matching `Gateways` so that Controller can then configure them.
+
+## Building and Deploying
+
+### Option 1: Build with Operator SDK
 
 1. Follow the Operator SDK Install structions here [https://sdk.operatorframework.io/docs/installation/](https://sdk.operatorframework.io/docs/installation/)
 2. Clone this repository
@@ -12,8 +22,15 @@ This is an operator for managing the lifecycle of K8s pods with NGINX Controller
 If you used a private container registry then you will need to ensure that your deployment can authenticate. See this doc
 for more instructions on that [bundles and private registries](https://sdk.operatorframework.io/docs/olm-integration/cli-overview/#private-bundle-and-catalog-image-registries)
 
-The deployment will have created an `aoigw-operator-system` namespace and a `apigw-operator-controller-manager` pod which is now
-watching for resources. You can see its logs with:
+### Option 2: Use my image
+
+If you don't have the SDK, then you can always grab my image from Docker hub: `docker.io/tuxinvader/igmonitor:latest` and deploy it
+by using/tweaking the manifests in the `examples/cluster` folder.
+
+### Monitoring
+
+The default deployment parameters will have created an `apigw-operator-system` namespace and a `apigw-operator-controller-manager`
+pod which is now watching for resources. You can see its logs with:
 
 ```
 kubectl -n apigw-operator-system logs deployment.apps/apigw-operator-controller-manager manager  -f
@@ -63,7 +80,7 @@ spec:
 ### Step Two
 
 You also need an NGINX Plus container which can automatically register itself with the NGINX Controller.
-So build this one, and host it in a private repo: [Docker NGINX Controller](https://github.com/nginxinc/docker-nginx-controller)
+So build this one: [Docker NGINX Controller](https://github.com/nginxinc/docker-nginx-controller), and host it in a private repo.
 
 You then need to deploy that container, using a manifest something like this:
 
