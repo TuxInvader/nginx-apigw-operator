@@ -7,5 +7,5 @@
   watchDependentResources: True
   finalizer:
     name: gateway.apigw.nginx.com/finalizer
-    playbook: playbooks/gateway.yml
+    playbook: playbooks/gateway_delete.yml
 #+kubebuilder:scaffold:watch
