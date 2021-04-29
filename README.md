@@ -1,13 +1,13 @@
 # NGINX Controller Pod Operator
 
-This is an operator for managing the lifecycle of K8s deployment, enabling pod configuration by NGINX Controller. 
+This is an operator for managing the lifecycle of K8s deployments, and enabling pod configuration with NGINX Controller. 
 
 It is designed to work with the [docker-nginx-controller](https://github.com/nginxinc/docker-nginx-controller) container, so
 you'll need to build yourself an NGINX Plus image from that project first.
 
 The container referenced above will automatically register itself with NGINX Controller when it starts, but it's then up
 to you to apply configuration to it. This project is an interrim measure until Controller fully supports Kubernetes. This
-operator creates a new Custom Resource of `Gateway` under `apigw.nginx.com` group. You can then use the `Gateway` to define
+operator creates a new Custom Resource of `Gateway` under the `apigw.nginx.com` group. You can then use the `Gateway` to define
 a `Deployment` and link that deployments configuration to a Controller Gateway object using a matching `tag`
 
 Once the Gateway has created the deployment, you can scale as normal, and changes to the pods will update the NGINX Controller.
