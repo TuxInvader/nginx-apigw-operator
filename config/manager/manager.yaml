@@ -36,11 +36,11 @@ spec:
         - name: ANSIBLE_GATHERING
           value: explicit
         - name: ANSIBLE_DEBUG_LOGS
-          value: "True"
+          value: "False"
         - name: ANSIBLE_VERBOSITY_CONTROLLER_APIGW_NGINX_COM
-          value: "7"
+          value: "1"
         - name: ANSIBLE_VERBOSITY_DEPLOYMENT_APPS
-          value: "7"
+          value: "1"
         securityContext:
           allowPrivilegeEscalation: false
         livenessProbe:
