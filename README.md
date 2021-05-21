@@ -27,7 +27,12 @@ for more instructions on that [bundles and private registries](https://sdk.opera
 ### Option 2: Use my image
 
 If you don't have the SDK, then you can always grab my image from Docker hub: `docker.io/tuxinvader/igmonitor:latest` and deploy it
-by using/tweaking the manifests in the `examples/cluster` folder.
+by using/tweaking the manifests in the `examples/cluster` folder, or try:
+
+```
+export IMG=docker.io/tuxinvader/igmonitor:latest
+make deploy
+```
 
 ### Monitoring
 
